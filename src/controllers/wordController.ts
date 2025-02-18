@@ -2,38 +2,54 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 
+const userSessions: Record<string, string[]> = {}; // Kullanıcıya özel kelime listesi
+
 export const getRandomWord = (req: Request, res: Response) => {
   try {
-    const mode = req.query.mode as string || "Klasik"; // Varsayılan olarak Klasik mod
+    const sessionId = req.query.sessionId as string; // Kullanıcı oturum kimliği al
+    const mode = req.query.mode || "Klasik";
     const filePath = path.join(__dirname, `../data/tabuWords${mode}.json`);
 
-    // console.log("Seçilen Mod:", mode);
-    // console.log("Dosya Yolu:", filePath);
-
     if (!fs.existsSync(filePath)) {
-      console.error("Hata: Dosya bulunamadı!", filePath);
       return res.status(400).json({ error: "Seçilen oyun modu için veri dosyası bulunamadı!" });
     }
 
     const rawData = fs.readFileSync(filePath, 'utf-8');
-    // console.log("JSON İçeriği:", rawData);
 
-    const words = JSON.parse(rawData);
-
-    if (!Array.isArray(words) || words.length === 0) {
-      console.error("Hata: JSON verisi boş veya yanlış formatta!");
-      return res.status(400).json({ error: "Geçersiz JSON verisi!" });
+    if (!sessionId) {
+      return res.status(400).json({ error: "sessionId eksik!" });
     }
 
-    const randomIndex = Math.floor(Math.random() * words.length);
-    const selectedWord = words[randomIndex];
-
-    if (!selectedWord || !selectedWord.word || !Array.isArray(selectedWord.banned)) {
-      console.error("Hata: Seçilen kelime JSON formatına uymuyor!", selectedWord);
-      return res.status(400).json({ error: "Seçilen kelime JSON formatına uymuyor!" });
+    // Kullanıcı için önceden kaydedilmiş kelimeler var mı?
+    if (!userSessions[sessionId]) {
+      userSessions[sessionId] = [];
     }
 
-    // console.log("Seçilen Kelime:", selectedWord);
+    // Kullanıcının kullanmadığı kelimeleri filtrele
+    interface WordData {
+      word: string;
+      banned: string[];
+    }
+    
+    const words: WordData[] = JSON.parse(rawData); // Burada WordData tipini belirtiyoruz
+    
+    const availableWords = words.filter((w: WordData) => 
+      !userSessions[sessionId].includes(w.word)
+    );
+    
+    // Eğer hiç kelime kalmadıysa, listeyi sıfırla
+    if (availableWords.length === 0) {
+      console.warn(`Tüm kelimeler kullanıldı! Kullanıcı ${sessionId} için liste sıfırlandı.`);
+      userSessions[sessionId] = [];
+    }
+
+    // Yeni kelime seç
+    const randomIndex = Math.floor(Math.random() * availableWords.length);
+    const selectedWord = availableWords[randomIndex];
+
+    // Kullanıcının kelime listesine ekle
+    userSessions[sessionId].push(selectedWord.word);
+
     res.json(selectedWord);
   } catch (error) {
     console.error("Hata:", error);
